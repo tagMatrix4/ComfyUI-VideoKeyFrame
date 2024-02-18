@@ -64,6 +64,13 @@ class VideoFrameCrop:
                     "step": 64,  # Slider's step
                     "display": "number"  # Cosmetic only: display as "number" or "slider"
                 }),
+                "padding": ("INT", {
+                    "default": 50,
+                    "min": 0,  # Minimum value
+                    "max": 4096,  # Maximum value
+                    "step": 64,  # Slider's step
+                    "display": "number"  # Cosmetic only: display as "number" or "slider"
+                }),
             },
         }
 
@@ -76,19 +83,19 @@ class VideoFrameCrop:
 
     CATEGORY = "VideoFrameCrop"
 
-    def crop_centered_with_bbox(self, images, target_width, target_height):
+    def crop_centered_with_bbox(self, images, target_width, target_height, padding):
         """
-        根据最小包围盒在给定的宽度和高度内居中裁剪图像
+        根据最小包围盒在给定的宽度和高度内居中裁剪图像，并在周围添加padding
 
         Args:
             images: 需要裁剪的图像，假设为PyTorch张量格式
-            target_width: 目标裁剪区域的宽度
-            target_height: 目标裁剪区域的高度
+            target_width: 目标裁剪区域的宽度（不包括padding）
+            target_height: 目标裁剪区域的高度（不包括padding）
+            padding: 裁剪区域边界的padding大小
 
         Returns:
-            PyTorch张量: 居中裁剪后的图像
+            PyTorch张量: 居中裁剪并添加了padding后的图像
         """
-
         # 找到所有非零像素的坐标
         non_zero_pixels = torch.nonzero(images[0, :, :, :].any(dim=-1), as_tuple=True)
         y_min, x_min = torch.min(non_zero_pixels[0]), torch.min(non_zero_pixels[1])
@@ -98,19 +105,19 @@ class VideoFrameCrop:
         bbox_center_x = (x_min + x_max) // 2
         bbox_center_y = (y_min + y_max) // 2
 
-        # 计算裁剪区域的起始点
-        start_x = max(bbox_center_x - target_width // 2, 0)
-        start_y = max(bbox_center_y - target_height // 2, 0)
+        # 考虑padding后计算裁剪区域的起始点
+        start_x = max(bbox_center_x - (target_width // 2) - padding, 0)
+        start_y = max(bbox_center_y - (target_height // 2) - padding, 0)
 
-        # 确保裁剪区域不超出图像边界
-        end_x = start_x + target_width
-        end_y = start_y + target_height
+        # 考虑padding后确保裁剪区域不超出图像边界
+        end_x = start_x + target_width + (2 * padding)
+        end_y = start_y + target_height + (2 * padding)
         if end_x > images.shape[2]:
             end_x = images.shape[2]
-            start_x = end_x - target_width
+            start_x = max(end_x - target_width - (2 * padding), 0)
         if end_y > images.shape[1]:
             end_y = images.shape[1]
-            start_y = end_y - target_height
+            start_y = max(end_y - target_height - (2 * padding), 0)
 
         # 裁剪图像
         cropped_img = images[:, start_y:end_y, start_x:end_x, :]
