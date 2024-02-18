@@ -152,7 +152,7 @@ class VideoFrameCrop:
                                    align_corners=False).permute(0, 2, 3, 1)
 
         # 创建新画布
-        canvas = torch.zeros((1, target_height, target_width, 3), device=images.device, dtype=scaled_img.dtype)
+        canvas = torch.zeros((images.shape[0], target_height, target_width, 3), device=images.device, dtype=scaled_img.dtype)
 
         # print(f'新画布大小: w = {target_width}, h = {target_height}')
 
