@@ -1,4 +1,6 @@
 import torch
+import torch.nn.functional as F
+
 
 class VideoFrameCrop:
     """
@@ -65,10 +67,10 @@ class VideoFrameCrop:
                     "display": "number"  # Cosmetic only: display as "number" or "slider"
                 }),
                 "padding": ("INT", {
-                    "default": 50,
+                    "default": 0,
                     "min": 0,  # Minimum value
                     "max": 4096,  # Maximum value
-                    "step": 64,  # Slider's step
+                    "step": 1,  # Slider's step
                     "display": "number"  # Cosmetic only: display as "number" or "slider"
                 }),
             },
@@ -83,46 +85,81 @@ class VideoFrameCrop:
 
     CATEGORY = "VideoFrameCrop"
 
+    def debug(self, images):
+        # 获取张量的形状
+        shape = images.shape
+
+        # 获取张量的数据类型
+        dtype = images.dtype
+
+        # 获取张量的设备（CPU或GPU）
+        device = images.device
+
+        # 如果张量有批量大小，获取批量大小
+        batch_size = images.shape[0] if len(shape) == 4 else None
+
+        # 获取通道数
+        channel_num = images.shape[1] if len(shape) == 4 else images.shape[0]
+
+        # 获取图像高度和宽度
+        height = images.shape[-2]
+        width = images.shape[-1]
+
+        # 打印获取的信息
+        print("Shape:", shape)
+        print("Data type:", dtype)
+        print("Device:", device)
+        print("Batch size:", batch_size)
+        print("Number of channels:", channel_num)
+        print("Height:", height)
+        print("Width:", width)
+
     def crop_centered_with_bbox(self, images, target_width, target_height, padding):
-        """
-        根据最小包围盒在给定的宽度和高度内居中裁剪图像，并在周围添加padding
+        # self.debug(images)
 
-        Args:
-            images: 需要裁剪的图像，假设为PyTorch张量格式
-            target_width: 目标裁剪区域的宽度（不包括padding）
-            target_height: 目标裁剪区域的高度（不包括padding）
-            padding: 裁剪区域边界的padding大小
+        if not isinstance(images, torch.Tensor):
+            return (images,)
 
-        Returns:
-            PyTorch张量: 居中裁剪并添加了padding后的图像
-        """
-        # 找到所有非零像素的坐标
+        # 假设images的形状为[1, 高度, 宽度, 3]
         non_zero_pixels = torch.nonzero(images[0, :, :, :].any(dim=-1), as_tuple=True)
+        if len(non_zero_pixels[0]) == 0 or len(non_zero_pixels[1]) == 0:
+            return (images,)
+
         y_min, x_min = torch.min(non_zero_pixels[0]), torch.min(non_zero_pixels[1])
         y_max, x_max = torch.max(non_zero_pixels[0]) + 1, torch.max(non_zero_pixels[1]) + 1
 
-        # 计算最小包围盒的中心点
-        bbox_center_x = (x_min + x_max) // 2
-        bbox_center_y = (y_min + y_max) // 2
+        cropped_img = images[:, y_min:y_max, x_min:x_max, :]
 
-        # 考虑padding后计算裁剪区域的起始点
-        start_x = max(bbox_center_x - (target_width // 2) - padding, 0)
-        start_y = max(bbox_center_y - (target_height // 2) - padding, 0)
+        # 等比例缩放图像
+        original_height = y_max - y_min
+        original_width = x_max - x_min
+        height_ratio = (target_height - 2 * padding - 100) / original_height
+        width_ratio = (target_width - 2 * padding) / original_width
+        scale_ratio = min(height_ratio, width_ratio)
 
-        # 考虑padding后确保裁剪区域不超出图像边界
-        end_x = start_x + target_width + (2 * padding)
-        end_y = start_y + target_height + (2 * padding)
-        if end_x > images.shape[2]:
-            end_x = images.shape[2]
-            start_x = max(end_x - target_width - (2 * padding), 0)
-        if end_y > images.shape[1]:
-            end_y = images.shape[1]
-            start_y = max(end_y - target_height - (2 * padding), 0)
+        scaled_height = int(original_height * scale_ratio)
+        scaled_width = int(original_width * scale_ratio)
 
-        # 裁剪图像
-        cropped_img = images[:, start_y:end_y, start_x:end_x, :]
+        # print(f'等比例缩放: w = {scaled_width}, h = {scaled_height}')
 
-        return (cropped_img,)
+        scaled_img = F.interpolate(cropped_img.permute(0, 3, 1, 2).float(),
+                                   size=(scaled_height, scaled_width),
+                                   mode='bilinear',
+                                   align_corners=False).permute(0, 2, 3, 1)
+
+        # 创建新画布
+        canvas = torch.zeros((1, target_height, target_width, 3), device=images.device, dtype=scaled_img.dtype)
+
+        # print(f'新画布大小: w = {target_width}, h = {target_height}')
+
+        # 计算缩放后图像在新画布上的中心对齐位置
+        start_x = (target_width - scaled_width) // 2
+        start_y = (target_height - scaled_height - 100) // 2  # 保持底部100像素间隔
+
+        # 复制缩放后的图像到新画布
+        canvas[:, start_y:start_y + scaled_height, start_x:start_x + scaled_width, :] = scaled_img
+
+        return (canvas,)
 
 
 # A dictionary that contains all nodes you want to export with their names
