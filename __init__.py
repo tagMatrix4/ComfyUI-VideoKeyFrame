@@ -76,7 +76,7 @@ class VideoFrameCrop:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "BOOLEAN")
     # RETURN_NAMES = ("image_output_name",)
 
     FUNCTION = "crop_centered_with_bbox"
@@ -118,12 +118,16 @@ class VideoFrameCrop:
         # self.debug(images)
 
         if not isinstance(images, torch.Tensor):
-            return (images,)
+            return {
+                "result": (images, False)
+            }
 
         # 假设images的形状为[1, 高度, 宽度, 3]
         non_zero_pixels = torch.nonzero(images[0, :, :, :].any(dim=-1), as_tuple=True)
         if len(non_zero_pixels[0]) == 0 or len(non_zero_pixels[1]) == 0:
-            return (images,)
+            return {
+                "result": (images, False)
+            }
 
         y_min, x_min = torch.min(non_zero_pixels[0]), torch.min(non_zero_pixels[1])
         y_max, x_max = torch.max(non_zero_pixels[0]) + 1, torch.max(non_zero_pixels[1]) + 1
@@ -159,7 +163,9 @@ class VideoFrameCrop:
         # 复制缩放后的图像到新画布
         canvas[:, start_y:start_y + scaled_height, start_x:start_x + scaled_width, :] = scaled_img
 
-        return (canvas,)
+        return {
+            "result": (canvas, True)
+        }
 
 
 # A dictionary that contains all nodes you want to export with their names
