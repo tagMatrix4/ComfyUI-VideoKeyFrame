@@ -115,57 +115,53 @@ class VideoFrameCrop:
         print("Width:", width)
 
     def crop_centered_with_bbox(self, images, target_width, target_height, padding):
-        # self.debug(images)
-
         if not isinstance(images, torch.Tensor):
-            return {
-                "result": (images, False)
-            }
+            return {"result": (images, False)}
 
-        # 假设images的形状为[1, 高度, 宽度, 3]
-        non_zero_pixels = torch.nonzero(images[0, :, :, :].any(dim=-1), as_tuple=True)
-        if len(non_zero_pixels[0]) == 0 or len(non_zero_pixels[1]) == 0:
-            return {
-                "result": (images, False)
-            }
+        b_exit = False
 
-        y_min, x_min = torch.min(non_zero_pixels[0]), torch.min(non_zero_pixels[1])
-        y_max, x_max = torch.max(non_zero_pixels[0]) + 1, torch.max(non_zero_pixels[1]) + 1
+        # 初始化新画布
+        canvas = torch.zeros((images.shape[0], target_height, target_width, 3), device=images.device,
+                             dtype=images.dtype)
 
-        cropped_img = images[:, y_min:y_max, x_min:x_max, :]
+        for i in range(images.shape[0]):
+            image = images[i:i + 1]  # 保持批次维度以便于使用F.interpolate
 
-        # 等比例缩放图像
-        original_height = y_max - y_min
-        original_width = x_max - x_min
-        height_ratio = (target_height - 2 * padding - 100) / original_height
-        width_ratio = (target_width - 2 * padding) / original_width
-        scale_ratio = min(height_ratio, width_ratio)
+            non_zero_pixels = torch.nonzero(image[0, :, :, :].any(dim=-1), as_tuple=True)
+            if len(non_zero_pixels[0]) == 0 or len(non_zero_pixels[1]) == 0:
+                b_exit = True
+                continue  # 如果当前图像为空，则跳过
 
-        scaled_height = int(original_height * scale_ratio)
-        scaled_width = int(original_width * scale_ratio)
+            y_min, x_min = torch.min(non_zero_pixels[0]), torch.min(non_zero_pixels[1])
+            y_max, x_max = torch.max(non_zero_pixels[0]) + 1, torch.max(non_zero_pixels[1]) + 1
 
-        # print(f'等比例缩放: w = {scaled_width}, h = {scaled_height}')
+            cropped_img = image[:, y_min:y_max, x_min:x_max, :]
 
-        scaled_img = F.interpolate(cropped_img.permute(0, 3, 1, 2).float(),
-                                   size=(scaled_height, scaled_width),
-                                   mode='bilinear',
-                                   align_corners=False).permute(0, 2, 3, 1)
+            # 等比例缩放图像
+            original_height, original_width = y_max - y_min, x_max - x_min
+            height_ratio = (target_height - 2 * padding - 100) / original_height
+            width_ratio = (target_width - 2 * padding) / original_width
+            scale_ratio = min(height_ratio, width_ratio)
 
-        # 创建新画布
-        canvas = torch.zeros((images.shape[0], target_height, target_width, 3), device=images.device, dtype=scaled_img.dtype)
+            scaled_height, scaled_width = int(original_height * scale_ratio), int(original_width * scale_ratio)
 
-        # print(f'新画布大小: w = {target_width}, h = {target_height}')
+            scaled_img = F.interpolate(cropped_img.permute(0, 3, 1, 2).float(),
+                                       size=(scaled_height, scaled_width),
+                                       mode='bilinear',
+                                       align_corners=False).permute(0, 2, 3, 1)
 
-        # 计算缩放后图像在新画布上的中心对齐位置
-        start_x = (target_width - scaled_width) // 2
-        start_y = (target_height - scaled_height - 100) // 2  # 保持底部100像素间隔
+            # 计算缩放后图像在新画布上的中心对齐位置
+            start_x, start_y = (target_width - scaled_width) // 2, (target_height - scaled_height - 100) // 2
 
-        # 复制缩放后的图像到新画布
-        canvas[:, start_y:start_y + scaled_height, start_x:start_x + scaled_width, :] = scaled_img
+            # 复制缩放后的图像到新画布
+            canvas[i, start_y:start_y + scaled_height, start_x:start_x + scaled_width, :] = scaled_img
 
-        return {
-            "result": (canvas, True)
-        }
+            b_exit = False
+
+        if b_exit:
+            return {"result": (canvas, False)}
+
+        return {"result": (canvas, True)}
 
 
 # A dictionary that contains all nodes you want to export with their names
